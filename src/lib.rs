@@ -1,4 +1,4 @@
-// Copyright (C) 2026 pi-digits authors
+// Copyright (C) 2026 lfortin
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Lesser General Public License as published
@@ -10,8 +10,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU Lesser General Public License for more details.
 //
-// You should have received copies of the GNU Lesser General Public License
-// and the GNU General Public License along with this program. If not, see
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program in the file LICENSE. If not, see
 // <https://www.gnu.org/licenses/>.
 
 //! Significant digits of pi, computed with Machin's formula.

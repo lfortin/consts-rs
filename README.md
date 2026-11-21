@@ -31,10 +31,14 @@ pi 10
 3.141592654
 ```
 
-`--version` (`-V`) prints the version from `Cargo.toml`. `--help` (`-h`) prints usage.
+`--version` (`-V`) prints the version from `Cargo.toml` with a `v` prefix, for example `v0.1.0`. `--help` (`-h`) prints usage.
 
 Requests above 100000 digits are rejected so the program does not run until it exhausts memory.
 
+## Note
+
+This project was created using agentic tools.
+
 ## License
 
-LGPL-3.0-or-later. See [COPYING.LESSER](COPYING.LESSER) and [COPYING](COPYING).
+LGPL-3.0-or-later. See [LICENSE](LICENSE).
