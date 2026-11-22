@@ -59,6 +59,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "cbrt2-digits"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
 name = "clap"
 version = "4.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -103,6 +112,24 @@ name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
+
+[[package]]
+name = "e-digits"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "num-bigint",
+ "num-traits",
+]
+
+[[package]]
+name = "golden-digits"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "num-bigint",
+ "num-traits",
+]
 
 [[package]]
 name = "heck"
@@ -175,6 +202,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "sqrt2-digits"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "num-bigint",
+ "num-traits",
 ]
 
 [[package]]

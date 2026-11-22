@@ -1,39 +1,34 @@
-# pi-digits
+# math-utils
 
-Command-line tool that prints pi to a requested number of significant digits.
+Workspace of command-line tools that print mathematical constants to a requested number of significant digits.
+
+| Tool | Crate | Binary |
+| --- | --- | --- |
+| Pi | [`pi-digits`](pi-digits/README.md) | `pi` |
+| Golden ratio | [`golden-digits`](golden-digits/README.md) | `golden` |
+| Square root of 2 | [`sqrt2-digits`](sqrt2-digits/README.md) | `sqrt2` |
+| Cube root of 2 | [`cbrt2-digits`](cbrt2-digits/README.md) | `cbrt2` |
+| Euler's number | [`e-digits`](e-digits/README.md) | `e` |
 
 ## Build
+
+Every crate uses `edition = "2024"`, which needs Rust 1.85 or newer.
 
 ```bash
 cargo build --release
 ```
 
-The binary is `target/release/pi`.
+The binaries are `target/release/pi`, `target/release/golden`, `target/release/sqrt2`, `target/release/cbrt2`, and `target/release/e`.
 
-## Usage
+Each command takes the same arguments: a required digit count from 1 to 100000, plus `--version` (`-V`) and `--help` (`-h`).
 
 ```bash
 pi 50
-pi --version
-pi --help
+golden 50
+sqrt2 50
+cbrt2 50
+e 50
 ```
-
-`DIGITS` is required. It is the number of significant digits, from 1 to 100000. A count of one prints `3`. Larger counts print a decimal point after the leading `3`. The last digit is rounded half up.
-
-```text
-pi 1
-3
-
-pi 5
-3.1416
-
-pi 10
-3.141592654
-```
-
-`--version` (`-V`) prints the version from `Cargo.toml` with a `v` prefix, for example `v0.1.0`. `--help` (`-h`) prints usage.
-
-Requests above 100000 digits are rejected so the program does not run until it exhausts memory.
 
 ## Note
 

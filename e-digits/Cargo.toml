@@ -1,0 +1,16 @@
+[package]
+name = "e-digits"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-3.0-or-later"
+description = "Print a chosen number of digits of Euler's number"
+readme = "README.md"
+
+[[bin]]
+name = "e"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+num-bigint = "0.4"
+num-traits = "0.2"

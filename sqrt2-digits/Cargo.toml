@@ -1,0 +1,16 @@
+[package]
+name = "sqrt2-digits"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-3.0-or-later"
+description = "Print a chosen number of digits of the square root of 2"
+readme = "README.md"
+
+[[bin]]
+name = "sqrt2"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+num-bigint = "0.4"
+num-traits = "0.2"
