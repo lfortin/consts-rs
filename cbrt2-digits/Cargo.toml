@@ -2,6 +2,7 @@
 name = "cbrt2-digits"
 version = "0.1.0"
 edition = "2024"
+publish = false
 license = "LGPL-3.0-or-later"
 description = "Print a chosen number of digits of the cube root of 2"
 readme = "README.md"
