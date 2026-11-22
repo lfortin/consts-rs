@@ -19,6 +19,7 @@ The binary is `target/release/golden`.
 ```bash
 golden 50
 golden --algo isqrt 50
+golden --algo cf 50
 golden -a newton 50
 golden --version
 golden --help
@@ -26,7 +27,7 @@ golden --help
 
 `DIGITS` is required. It is the number of significant digits, from 1 to 1000000. A count of one prints `2`, because 1.618… rounds half up. Larger counts print a decimal point after the leading `1`. The last digit is rounded half up.
 
-`--algo` (`-a`) selects the algorithm. `newton` (the default) takes the square root of 5 by Newton-Raphson. `isqrt` uses integer square root. Both then compute (1 + √5) / 2 and print the same digits.
+`--algo` (`-a`) selects how the golden ratio is computed. `newton` (the default) and `isqrt` both evaluate (1 + √5) / 2. `newton` finds √5 with Newton-Raphson. `isqrt` uses integer square root. `cf` uses the continued fraction φ = [1; 1, 1, …], whose convergents are consecutive Fibonacci ratios. All three print the same digits.
 
 ```text
 golden 1

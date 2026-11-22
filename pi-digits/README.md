@@ -17,6 +17,7 @@ The binary is `target/release/pi`.
 ```bash
 pi 50
 pi --algo binary-split 50
+pi --algo chudnovsky 50
 pi -a machin 50
 pi --version
 pi --help
@@ -24,7 +25,7 @@ pi --help
 
 `DIGITS` is required. It is the number of significant digits, from 1 to 1000000. A count of one prints `3`. Larger counts print a decimal point after the leading `3`. The last digit is rounded half up.
 
-`--algo` (`-a`) selects the algorithm. `machin` (the default) uses Machin's formula with an alternating Taylor series. `binary-split` evaluates the same series with binary splitting. Both print the same digits.
+`--algo` (`-a`) selects how pi is computed. `machin` (the default) and `binary-split` both use Machin's formula, π/4 = 4·arctan(1/5) − arctan(1/239). `machin` sums each arctangent Taylor series term by term. `binary-split` sums that same series with binary splitting. `chudnovsky` uses the Chudnovsky series for 1/π and also sums it with binary splitting. All three print the same digits.
 
 ```text
 pi 1

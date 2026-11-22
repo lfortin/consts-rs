@@ -14,10 +14,13 @@
 // along with this program in the file LICENSE. If not, see
 // <https://www.gnu.org/licenses/>.
 
-//! Significant digits of pi, computed with Machin's formula.
+//! Significant digits of pi.
 //!
-//! [`PiAlgo::Machin`] sums the arctangent Taylor series directly.
-//! [`PiAlgo::BinarySplit`] evaluates the same series with binary splitting.
+//! [`PiAlgo::Machin`] and [`PiAlgo::BinarySplit`] both use Machin's formula,
+//! π/4 = 4·arctan(1/5) − arctan(1/239). `Machin` sums each arctangent Taylor
+//! series term by term. `BinarySplit` sums that same series with binary
+//! splitting. [`PiAlgo::Chudnovsky`] uses the Chudnovsky series for 1/π and
+//! also sums it with binary splitting.
 
 use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
@@ -30,10 +33,12 @@ const GUARD_DIGITS: u32 = 20;
 /// Algorithm used to compute significant digits of pi.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum PiAlgo {
-    /// Machin's formula using alternating Taylor series on scaled integers.
+    /// Machin's formula, with each arctangent Taylor series summed term by term.
     Machin,
-    /// Binary splitting over Machin's arctangent series.
+    /// Machin's formula, with each arctangent series summed by binary splitting.
     BinarySplit,
+    /// Chudnovsky series for 1/π, summed by binary splitting.
+    Chudnovsky,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -48,6 +53,7 @@ impl std::fmt::Display for PiAlgo {
         f.write_str(match self {
             PiAlgo::Machin => "machin",
             PiAlgo::BinarySplit => "binary-split",
+            PiAlgo::Chudnovsky => "chudnovsky",
         })
     }
 }
@@ -72,6 +78,7 @@ pub fn format_pi_with_algo(digits: u32, algo: PiAlgo) -> Result<String, &'static
     let pi_scaled = match algo {
         PiAlgo::Machin => pi_machin(&one),
         PiAlgo::BinarySplit => pi_binary_split(&one, scale),
+        PiAlgo::Chudnovsky => compute_pi_chudnovsky(&one, scale),
     };
     format_scaled_pi(pi_scaled, digits)
 }
@@ -187,6 +194,85 @@ struct AtanSplit {
     t: BigInt,
 }
 
+/// Chudnovsky coefficients. Each term adds a little more than 14 decimal digits.
+const CHUD_A: u128 = 13_591_409;
+const CHUD_B: u128 = 545_140_134;
+const CHUD_C: u32 = 640_320;
+
+/// Scaled integer approximation of pi from the Chudnovsky series.
+///
+/// `426880 √10005 / π = Σ (-1)^k (6k)! (A + Bk) / ((3k)! (k!)^3 C^(3k))`.
+/// Binary splitting computes that sum as `t/q`, then one division yields pi.
+fn compute_pi_chudnovsky(one: &BigUint, scale: u32) -> BigUint {
+    let c = BigUint::from(CHUD_C);
+    let q_factor = (&c * &c * c) / 24u32;
+    let split = split_chudnovsky(0, chudnovsky_terms(scale), &q_factor);
+    let t = split
+        .t
+        .to_biguint()
+        .expect("Chudnovsky sum starting at zero is positive");
+    // π * 10^scale = 426880 * √(10005) * 10^scale * q / t
+    let sqrt_scaled = (BigUint::from(10005u32) * one * one).sqrt();
+    split.q * 426_880u32 * sqrt_scaled / t
+}
+
+fn chudnovsky_terms(scale: u32) -> u32 {
+    // 14 digits per term underestimates the real 14.18, so the count is high.
+    scale.div_ceil(14).max(1) + 1
+}
+
+/// Binary split of the Chudnovsky sum for k in `[start, end)`.
+///
+/// `t/q` is the partial sum. `q_factor` is `C^3 / 24`.
+struct ChudSplit {
+    p: BigUint,
+    q: BigUint,
+    t: BigInt,
+}
+
+fn split_chudnovsky(start: u32, end: u32, q_factor: &BigUint) -> ChudSplit {
+    if end - start == 1 {
+        return chudnovsky_term(start, q_factor);
+    }
+
+    let mid = start.midpoint(end);
+    let left = split_chudnovsky(start, mid, q_factor);
+    let right = split_chudnovsky(mid, end, q_factor);
+    let t = &left.t * BigInt::from(right.q.clone()) + BigInt::from(left.p.clone()) * &right.t;
+    ChudSplit {
+        p: left.p * right.p,
+        q: left.q * right.q,
+        t,
+    }
+}
+
+fn chudnovsky_term(k: u32, q_factor: &BigUint) -> ChudSplit {
+    if k == 0 {
+        return ChudSplit {
+            p: BigUint::from(1u32),
+            q: BigUint::from(1u32),
+            t: BigInt::from(CHUD_A),
+        };
+    }
+
+    let k = u128::from(k);
+    let p = (6 * k - 5) * (2 * k - 1) * (6 * k - 1);
+    let linear = CHUD_A + CHUD_B * k;
+    let k_bi = BigUint::from(k);
+    let q = &k_bi * &k_bi * &k_bi * q_factor;
+    let magnitude = BigUint::from(p) * BigUint::from(linear);
+    let t = if k.is_multiple_of(2) {
+        BigInt::from(magnitude)
+    } else {
+        -BigInt::from(magnitude)
+    };
+    ChudSplit {
+        p: BigUint::from(p),
+        q,
+        t,
+    }
+}
+
 fn split_arctan(start: u32, end: u32, y: &BigUint) -> AtanSplit {
     if end - start == 1 {
         let t = if start.is_multiple_of(2) {
@@ -233,7 +319,7 @@ mod tests {
     fn rejects_out_of_range() {
         assert!(format_pi(0).is_err());
         assert!(format_pi(MAX_DIGITS + 1).is_err());
-        for algo in [PiAlgo::Machin, PiAlgo::BinarySplit] {
+        for algo in [PiAlgo::Machin, PiAlgo::BinarySplit, PiAlgo::Chudnovsky] {
             assert!(format_pi_with_algo(0, algo).is_err());
             assert!(format_pi_with_algo(MAX_DIGITS + 1, algo).is_err());
         }
@@ -244,7 +330,7 @@ mod tests {
         assert_eq!(PiAlgo::default(), PiAlgo::Machin);
         for digits in [1, 2, 5, 10, 50, 200] {
             let expected = format_pi(digits).unwrap();
-            for algo in [PiAlgo::Machin, PiAlgo::BinarySplit] {
+            for algo in [PiAlgo::Machin, PiAlgo::BinarySplit, PiAlgo::Chudnovsky] {
                 assert_eq!(
                     format_pi_with_algo(digits, algo).unwrap(),
                     expected,

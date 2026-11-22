@@ -14,10 +14,12 @@
 // along with this program in the file LICENSE. If not, see
 // <https://www.gnu.org/licenses/>.
 
-//! Significant digits of Euler's number, from the series e = Σ 1/k!.
+//! Significant digits of Euler's number.
 //!
-//! [`EAlgo::Taylor`] divides by each integer in turn. [`EAlgo::BinarySplit`]
-//! multiplies those factors in a tree and divides once.
+//! [`EAlgo::Taylor`] and [`EAlgo::BinarySplit`] both use the series e = Σ 1/n!.
+//! `Taylor` divides by each integer in turn. `BinarySplit` multiplies those
+//! factors in a tree and divides once. [`EAlgo::Cf`] uses the continued
+//! fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …].
 
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -30,10 +32,12 @@ const GUARD_DIGITS: u32 = 20;
 /// Algorithm used to compute significant digits of e.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum EAlgo {
-    /// Direct series e = Σ 1/n! on scaled integers.
+    /// Series e = Σ 1/n!, divided by each integer in turn.
     Taylor,
-    /// Binary splitting over the factorial series.
+    /// Series e = Σ 1/n!, summed by binary splitting.
     BinarySplit,
+    /// Continued fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …].
+    Cf,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -48,6 +52,7 @@ impl std::fmt::Display for EAlgo {
         f.write_str(match self {
             EAlgo::Taylor => "taylor",
             EAlgo::BinarySplit => "binary-split",
+            EAlgo::Cf => "cf",
         })
     }
 }
@@ -73,6 +78,7 @@ pub fn format_e_with_algo(digits: u32, algo: EAlgo) -> Result<String, &'static s
     let e_scaled = match algo {
         EAlgo::Taylor => e_taylor(&one),
         EAlgo::BinarySplit => e_binary_split(&one, scale),
+        EAlgo::Cf => e_continued_fraction(&one, scale),
     };
     format_scaled_e(e_scaled, digits)
 }
@@ -123,6 +129,55 @@ fn e_binary_split(one: &BigUint, scale: u32) -> BigUint {
     let split = split_factorial(0, term_count(scale));
     // Partial sum of Σ 1/k! is t/q. `p` is the product of numerator factors (all 1).
     (split.t * one) / split.q
+}
+
+/// `floor(e * 10^scale)` from continued-fraction convergents.
+///
+/// e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …], so `a_0 = 2` and, for m ≥ 1,
+/// `a_{3m-2} = 1`, `a_{3m-1} = 2m`, `a_{3m} = 1`. The convergents obey
+/// `p_k = a_k p_{k-1} + p_{k-2}` and `q_k = a_k q_{k-1} + q_{k-2}`,
+/// starting from `p_{-2} = 0`, `p_{-1} = 1`, `q_{-2} = 1`, `q_{-1} = 0`.
+fn e_continued_fraction(one: &BigUint, scale: u32) -> BigUint {
+    let mut p_prev = BigUint::from(0u32);
+    let mut p = BigUint::from(1u32);
+    let mut q_prev = BigUint::from(1u32);
+    let mut q = BigUint::from(0u32);
+    let needed_bits = convergent_bits(scale);
+    let mut k = 0u32;
+    loop {
+        let a = BigUint::from(partial_quotient(k));
+        let p_next = &a * &p + &p_prev;
+        let q_next = &a * &q + &q_prev;
+        p_prev = p;
+        q_prev = q;
+        p = p_next;
+        q = q_next;
+        k += 1;
+        if q.bits() >= needed_bits {
+            break;
+        }
+    }
+    (&p * one) / q
+}
+
+/// `a_0 = 2`; later terms are 1, except `a_{3m-1} = 2m`.
+fn partial_quotient(k: u32) -> u64 {
+    if k == 0 {
+        return 2;
+    }
+    if k % 3 == 2 {
+        let m = u64::from((k + 1) / 3);
+        2 * m
+    } else {
+        1
+    }
+}
+
+/// Bit length of a convergent denominator past which the error is far below
+/// one unit at `scale`.
+fn convergent_bits(scale: u32) -> u64 {
+    // q > 10^((scale + 8) / 2). log2(10) / 2 < 3322/2000.
+    (u64::from(scale) + 8) * 3322 / 2000 + 2
 }
 
 /// Number of factorial terms so the omitted tail is below one unit at `scale`.
@@ -194,7 +249,7 @@ mod tests {
     fn rejects_out_of_range() {
         assert!(format_e(0).is_err());
         assert!(format_e(MAX_DIGITS + 1).is_err());
-        for algo in [EAlgo::Taylor, EAlgo::BinarySplit] {
+        for algo in [EAlgo::Taylor, EAlgo::BinarySplit, EAlgo::Cf] {
             assert!(format_e_with_algo(0, algo).is_err());
             assert!(format_e_with_algo(MAX_DIGITS + 1, algo).is_err());
         }
@@ -205,7 +260,7 @@ mod tests {
         assert_eq!(EAlgo::default(), EAlgo::Taylor);
         for digits in [1, 2, 5, 10, 50, 200] {
             let expected = format_e(digits).unwrap();
-            for algo in [EAlgo::Taylor, EAlgo::BinarySplit] {
+            for algo in [EAlgo::Taylor, EAlgo::BinarySplit, EAlgo::Cf] {
                 assert_eq!(
                     format_e_with_algo(digits, algo).unwrap(),
                     expected,

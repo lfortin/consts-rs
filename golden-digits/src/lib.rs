@@ -16,8 +16,10 @@
 
 //! Significant digits of the golden ratio, φ = (1 + √5) / 2.
 //!
-//! [`GoldenAlgo::Newton`] finds √5 with Newton-Raphson. [`GoldenAlgo::Isqrt`]
-//! uses integer square root. Both then evaluate (10^scale + √5 × 10^scale) / 2.
+//! [`GoldenAlgo::Newton`] and [`GoldenAlgo::Isqrt`] both evaluate
+//! (10^scale + √5 × 10^scale) / 2. `Newton` finds √5 with Newton-Raphson.
+//! `Isqrt` uses integer square root. [`GoldenAlgo::Cf`] uses the continued
+//! fraction φ = [1; 1, 1, …], whose convergents are consecutive Fibonacci ratios.
 
 use num_bigint::BigUint;
 use num_traits::Zero;
@@ -30,10 +32,12 @@ const GUARD_DIGITS: u32 = 20;
 /// Algorithm used to compute significant digits of the golden ratio.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub enum GoldenAlgo {
-    /// Newton-Raphson square root of 5, then (1 + √5) / 2.
+    /// (1 + √5) / 2, with √5 from Newton-Raphson.
     Newton,
-    /// Integer square root of 5 × 10^(2·scale), then (1 + √5) / 2.
+    /// (1 + √5) / 2, with √5 from integer square root.
     Isqrt,
+    /// Continued fraction φ = [1; 1, 1, …], the Fibonacci ratios.
+    Cf,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -48,6 +52,7 @@ impl std::fmt::Display for GoldenAlgo {
         f.write_str(match self {
             GoldenAlgo::Newton => "newton",
             GoldenAlgo::Isqrt => "isqrt",
+            GoldenAlgo::Cf => "cf",
         })
     }
 }
@@ -70,12 +75,11 @@ pub fn format_golden(digits: u32) -> Result<String, &'static str> {
 pub fn format_golden_with_algo(digits: u32, algo: GoldenAlgo) -> Result<String, &'static str> {
     let scale = scale_for_digits(digits)?;
     let one = BigUint::from(10u32).pow(scale);
-    let sqrt5_scaled = match algo {
-        GoldenAlgo::Newton => sqrt5_newton(scale),
-        GoldenAlgo::Isqrt => sqrt5_isqrt(scale),
+    let phi_scaled = match algo {
+        GoldenAlgo::Newton => phi_from_sqrt5(&one, sqrt5_newton(scale)),
+        GoldenAlgo::Isqrt => phi_from_sqrt5(&one, sqrt5_isqrt(scale)),
+        GoldenAlgo::Cf => golden_continued_fraction(&one),
     };
-    // φ * 10^scale = (10^scale + √5 * 10^scale) / 2
-    let phi_scaled = (&one + sqrt5_scaled) / 2u32;
     format_scaled_golden(phi_scaled, digits)
 }
 
@@ -106,6 +110,11 @@ fn format_scaled_golden(phi_scaled: BigUint, digits: u32) -> Result<String, &'st
     }
 }
 
+fn phi_from_sqrt5(one: &BigUint, sqrt5_scaled: BigUint) -> BigUint {
+    // φ * 10^scale = (10^scale + √5 * 10^scale) / 2
+    (one + sqrt5_scaled) / 2u32
+}
+
 /// `floor(√5 * 10^scale)` by Newton-Raphson.
 fn sqrt5_newton(scale: u32) -> BigUint {
     let radicand = BigUint::from(5u32) * BigUint::from(10u32).pow(scale * 2);
@@ -134,6 +143,33 @@ fn isqrt_newton(n: &BigUint) -> BigUint {
     }
 }
 
+/// `floor(φ * 10^scale)` from continued-fraction convergents.
+///
+/// φ = [1; 1, 1, …], so every partial quotient is 1 and the convergents are
+/// consecutive Fibonacci ratios: `p_0 = 1`, `q_0 = 1`, `p_1 = 2`, `q_1 = 1`,
+/// then `p_k = p_{k-1} + p_{k-2}` and `q_k = q_{k-1} + q_{k-2}`.
+/// The error of `p/q` is less than `1/(q q_next)`.
+fn golden_continued_fraction(one: &BigUint) -> BigUint {
+    let mut p_prev = BigUint::from(1u32);
+    let mut q_prev = BigUint::from(1u32);
+    let mut p = BigUint::from(2u32);
+    let mut q = BigUint::from(1u32);
+    // Stop once 1/(q q_next) is under half a unit at this scale.
+    let half_unit = one * 2u32;
+    loop {
+        let q_next = &q + &q_prev;
+        if &q * &q_next > half_unit {
+            break;
+        }
+        let p_next = &p + &p_prev;
+        p_prev = p;
+        q_prev = q;
+        p = p_next;
+        q = q_next;
+    }
+    (&p * one) / q
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,7 +191,7 @@ mod tests {
     fn rejects_out_of_range() {
         assert!(format_golden(0).is_err());
         assert!(format_golden(MAX_DIGITS + 1).is_err());
-        for algo in [GoldenAlgo::Newton, GoldenAlgo::Isqrt] {
+        for algo in [GoldenAlgo::Newton, GoldenAlgo::Isqrt, GoldenAlgo::Cf] {
             assert!(format_golden_with_algo(0, algo).is_err());
             assert!(format_golden_with_algo(MAX_DIGITS + 1, algo).is_err());
         }
@@ -166,7 +202,7 @@ mod tests {
         assert_eq!(GoldenAlgo::default(), GoldenAlgo::Newton);
         for digits in [1, 2, 5, 10, 50, 200] {
             let expected = format_golden(digits).unwrap();
-            for algo in [GoldenAlgo::Newton, GoldenAlgo::Isqrt] {
+            for algo in [GoldenAlgo::Newton, GoldenAlgo::Isqrt, GoldenAlgo::Cf] {
                 assert_eq!(
                     format_golden_with_algo(digits, algo).unwrap(),
                     expected,
