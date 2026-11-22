@@ -1,4 +1,4 @@
-# math-utils
+# consts-rs
 
 Workspace of command-line tools that print mathematical constants to a requested number of significant digits.
 
