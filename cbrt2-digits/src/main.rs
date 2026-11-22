@@ -14,9 +14,9 @@
 // along with this program in the file LICENSE. If not, see
 // <https://www.gnu.org/licenses/>.
 
+use cbrt2_digits::{Cbrt2Algo, MAX_DIGITS, format_cbrt2_with_algo};
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use cbrt2_digits::{MAX_DIGITS, format_cbrt2};
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
@@ -30,6 +30,10 @@ struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
     version: bool,
+
+    /// Algorithm used to compute the cube root of 2
+    #[arg(short, long, value_enum, default_value_t = Cbrt2Algo::Newton)]
+    algo: Cbrt2Algo,
 
     /// Number of significant digits to print (1 to 100000)
     #[arg(value_parser = digits_in_range)]
@@ -64,7 +68,7 @@ fn main() {
         println!("{VERSION}");
         return;
     }
-    match format_cbrt2(cli.digits) {
+    match format_cbrt2_with_algo(cli.digits, cli.algo) {
         Ok(text) => println!("{text}"),
         Err(message) => {
             eprintln!("error: {message}");

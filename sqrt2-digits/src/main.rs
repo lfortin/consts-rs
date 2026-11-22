@@ -16,7 +16,7 @@
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use sqrt2_digits::{MAX_DIGITS, format_sqrt2};
+use sqrt2_digits::{MAX_DIGITS, Sqrt2Algo, format_sqrt2_with_algo};
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
@@ -30,6 +30,10 @@ struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
     version: bool,
+
+    /// Algorithm used to compute the square root of 2
+    #[arg(short, long, value_enum, default_value_t = Sqrt2Algo::Newton)]
+    algo: Sqrt2Algo,
 
     /// Number of significant digits to print (1 to 100000)
     #[arg(value_parser = digits_in_range)]
@@ -64,7 +68,7 @@ fn main() {
         println!("{VERSION}");
         return;
     }
-    match format_sqrt2(cli.digits) {
+    match format_sqrt2_with_algo(cli.digits, cli.algo) {
         Ok(text) => println!("{text}"),
         Err(message) => {
             eprintln!("error: {message}");

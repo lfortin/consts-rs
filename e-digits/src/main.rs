@@ -16,7 +16,7 @@
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use e_digits::{MAX_DIGITS, format_e};
+use e_digits::{EAlgo, MAX_DIGITS, format_e_with_algo};
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
@@ -30,6 +30,10 @@ struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
     version: bool,
+
+    /// Algorithm used to compute e
+    #[arg(short, long, value_enum, default_value_t = EAlgo::Taylor)]
+    algo: EAlgo,
 
     /// Number of significant digits to print (1 to 100000)
     #[arg(value_parser = digits_in_range)]
@@ -64,7 +68,7 @@ fn main() {
         println!("{VERSION}");
         return;
     }
-    match format_e(cli.digits) {
+    match format_e_with_algo(cli.digits, cli.algo) {
         Ok(text) => println!("{text}"),
         Err(message) => {
             eprintln!("error: {message}");

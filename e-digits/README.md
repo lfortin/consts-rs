@@ -16,11 +16,15 @@ The binary is `target/release/e`.
 
 ```bash
 e 50
+e --algo binary-split 50
+e -a taylor 50
 e --version
 e --help
 ```
 
 `DIGITS` is required. It is the number of significant digits, from 1 to 100000. A count of one prints `3`, because 2.718… rounds half up. Larger counts print a decimal point after the leading `2`. The last digit is rounded half up.
+
+`--algo` (`-a`) selects the algorithm. `taylor` (the default) sums e = Σ 1/n! directly. `binary-split` evaluates the same series with binary splitting. Both print the same digits.
 
 ```text
 e 1

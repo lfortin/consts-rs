@@ -16,7 +16,7 @@
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use pi_digits::{MAX_DIGITS, format_pi};
+use pi_digits::{MAX_DIGITS, PiAlgo, format_pi_with_algo};
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
@@ -26,6 +26,10 @@ struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
     version: bool,
+
+    /// Algorithm used to compute pi
+    #[arg(short, long, value_enum, default_value_t = PiAlgo::Machin)]
+    algo: PiAlgo,
 
     /// Number of significant digits to print (1 to 100000)
     #[arg(value_parser = digits_in_range)]
@@ -60,7 +64,7 @@ fn main() {
         println!("{VERSION}");
         return;
     }
-    match format_pi(cli.digits) {
+    match format_pi_with_algo(cli.digits, cli.algo) {
         Ok(text) => println!("{text}"),
         Err(message) => {
             eprintln!("error: {message}");

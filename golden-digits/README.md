@@ -18,11 +18,15 @@ The binary is `target/release/golden`.
 
 ```bash
 golden 50
+golden --algo isqrt 50
+golden -a newton 50
 golden --version
 golden --help
 ```
 
 `DIGITS` is required. It is the number of significant digits, from 1 to 100000. A count of one prints `2`, because 1.618… rounds half up. Larger counts print a decimal point after the leading `1`. The last digit is rounded half up.
+
+`--algo` (`-a`) selects the algorithm. `newton` (the default) takes the square root of 5 by Newton-Raphson. `isqrt` uses integer square root. Both then compute (1 + √5) / 2 and print the same digits.
 
 ```text
 golden 1

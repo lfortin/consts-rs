@@ -16,11 +16,15 @@ The binary is `target/release/sqrt2`.
 
 ```bash
 sqrt2 50
+sqrt2 --algo cf 50
+sqrt2 -a newton 50
 sqrt2 --version
 sqrt2 --help
 ```
 
 `DIGITS` is required. It is the number of significant digits, from 1 to 100000. A count of one prints `1`. Larger counts print a decimal point after the leading `1`. The last digit is rounded half up.
+
+`--algo` (`-a`) selects the algorithm. `newton` (the default) uses Heron's method. `cf` uses the continued fraction √2 = [1; 2, 2, 2, …]. Both print the same digits.
 
 ```text
 sqrt2 1
