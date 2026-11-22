@@ -20,7 +20,7 @@ cargo build --release
 
 The binaries are `target/release/pi`, `target/release/golden`, `target/release/sqrt2`, `target/release/cbrt2`, and `target/release/e`.
 
-Each command takes a required digit count from 1 to 100000, plus `--version` (`-V`) and `--help` (`-h`). Every command also takes `--algo` (`-a`). `pi` accepts `machin` (the default) or `binary-split`. `golden` accepts `newton` (the default) or `isqrt`. `sqrt2` accepts `newton` (the default) or `cf`. `cbrt2` accepts `newton` (the default) or `halley`. `e` accepts `taylor` (the default) or `binary-split`.
+Each command takes a required digit count from 1 to 1000000, plus `--version` (`-V`) and `--help` (`-h`). Every command also takes `--algo` (`-a`). `pi` accepts `machin` (the default) or `binary-split`. `golden` accepts `newton` (the default) or `isqrt`. `sqrt2` accepts `newton` (the default) or `cf`. `cbrt2` accepts `newton` (the default) or `halley`. `e` accepts `taylor` (the default) or `binary-split`.
 
 ```bash
 pi 50

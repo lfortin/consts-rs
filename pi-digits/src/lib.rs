@@ -23,7 +23,7 @@ use num_bigint::{BigInt, BigUint};
 use num_traits::Zero;
 
 /// Largest digit count the CLI and library will compute.
-pub const MAX_DIGITS: u32 = 100_000;
+pub const MAX_DIGITS: u32 = 1_000_000;
 
 const GUARD_DIGITS: u32 = 20;
 
@@ -78,7 +78,7 @@ pub fn format_pi_with_algo(digits: u32, algo: PiAlgo) -> Result<String, &'static
 
 fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
     if !(1..=MAX_DIGITS).contains(&digits) {
-        return Err("digit count must be from 1 to 100000");
+        return Err("digit count must be from 1 to 1000000");
     }
     Ok(digits - 1 + GUARD_DIGITS)
 }

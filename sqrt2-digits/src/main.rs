@@ -35,7 +35,7 @@ struct Cli {
     #[arg(short, long, value_enum, default_value_t = Sqrt2Algo::Newton)]
     algo: Sqrt2Algo,
 
-    /// Number of significant digits to print (1 to 100000)
+    /// Number of significant digits to print (1 to 1000000)
     #[arg(value_parser = digits_in_range)]
     digits: u32,
 }
