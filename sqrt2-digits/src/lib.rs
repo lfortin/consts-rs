@@ -20,12 +20,17 @@
 //! continued fraction √2 = [1; 2, 2, 2, …].
 
 use num_bigint::BigUint;
+use num_integer::Integer;
 use num_traits::Zero;
 
 /// Largest digit count the CLI and library will compute.
 pub const MAX_DIGITS: u32 = 1_000_000;
 
 const GUARD_DIGITS: u32 = 20;
+
+/// `10^GUARD_DIGITS`. Small enough to live in a `u128`, so rounding does not
+/// rebuild it with `BigUint::pow` on every call.
+const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of √2.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -68,9 +73,10 @@ pub fn format_sqrt2(digits: u32) -> Result<String, &'static str> {
 /// decimal point after the leading `1`. The last digit is rounded half up.
 pub fn format_sqrt2_with_algo(digits: u32, algo: Sqrt2Algo) -> Result<String, &'static str> {
     let scale = scale_for_digits(digits)?;
+    let one = BigUint::from(10u32).pow(scale);
     let sqrt2_scaled = match algo {
-        Sqrt2Algo::Newton => sqrt2_newton(scale),
-        Sqrt2Algo::Cf => sqrt2_cf(scale),
+        Sqrt2Algo::Newton => sqrt2_newton(&one),
+        Sqrt2Algo::Cf => sqrt2_cf(&one, scale),
     };
     format_scaled_sqrt2(sqrt2_scaled, digits)
 }
@@ -83,10 +89,10 @@ fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
 }
 
 fn format_scaled_sqrt2(sqrt2_scaled: BigUint, digits: u32) -> Result<String, &'static str> {
-    let guard = BigUint::from(10u32).pow(GUARD_DIGITS);
-    let half = &guard / 2u32;
-    let mut kept = &sqrt2_scaled / &guard;
-    if &sqrt2_scaled % &guard >= half {
+    let guard = BigUint::from(GUARD_SCALE);
+    let half = BigUint::from(GUARD_SCALE / 2);
+    let (mut kept, remainder) = sqrt2_scaled.div_rem(&guard);
+    if remainder >= half {
         kept += 1u32;
     }
 
@@ -103,9 +109,9 @@ fn format_scaled_sqrt2(sqrt2_scaled: BigUint, digits: u32) -> Result<String, &'s
 }
 
 /// `floor(√2 * 10^scale)` by Newton-Raphson.
-fn sqrt2_newton(scale: u32) -> BigUint {
+fn sqrt2_newton(one: &BigUint) -> BigUint {
     // floor(√2 * 10^scale) = isqrt(2 * 10^(2*scale))
-    let radicand = BigUint::from(2u32) * BigUint::from(10u32).pow(scale * 2);
+    let radicand = BigUint::from(2u32) * one * one;
     isqrt_newton(&radicand)
 }
 
@@ -115,9 +121,48 @@ fn isqrt_newton(n: &BigUint) -> BigUint {
         return BigUint::zero();
     }
 
-    let mut x = BigUint::from(1u32) << n.bits().div_ceil(2);
+    let mut x = isqrt_guess(n);
     loop {
         let y = (&x + n / &x) >> 1;
+        if y >= x {
+            return x;
+        }
+        x = y;
+    }
+}
+
+/// Upper bound on `floor(sqrt(n))` from the top one or two `u64` limbs.
+///
+/// `n < (top + 1) * 2^shift` with `shift` a multiple of 64, so
+/// `sqrt(n) < (floor(sqrt(top)) + 1) * 2^(shift/2)`.
+fn isqrt_guess(n: &BigUint) -> BigUint {
+    let bits = n.bits();
+    let coarse = BigUint::from(1u32) << bits.div_ceil(2);
+    if bits <= 64 {
+        return coarse;
+    }
+    let digits = n.to_u64_digits();
+    let Some(last) = digits.len().checked_sub(1) else {
+        return coarse;
+    };
+    let mut top = u128::from(digits[last]);
+    let mut shift = 64 * (last as u64);
+    if last >= 1 {
+        top = (top << 64) | u128::from(digits[last - 1]);
+        shift -= 64;
+    }
+    let root = isqrt_u128(top) + 1;
+    BigUint::from(root) << (shift / 2)
+}
+
+fn isqrt_u128(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    let bits = 128 - n.leading_zeros();
+    let mut x = 1u128 << bits.div_ceil(2);
+    loop {
+        let y = (x + n / x) >> 1;
         if y >= x {
             return x;
         }
@@ -129,21 +174,20 @@ fn isqrt_newton(n: &BigUint) -> BigUint {
 ///
 /// √2 = [1; 2, 2, 2, …], so for k ≥ 1 the convergents obey
 /// `p_k = 2 p_{k-1} + p_{k-2}` and `q_k = 2 q_{k-1} + q_{k-2}`.
-fn sqrt2_cf(scale: u32) -> BigUint {
+fn sqrt2_cf(one: &BigUint, scale: u32) -> BigUint {
     let mut p_prev = BigUint::from(1u32);
     let mut p = BigUint::from(1u32);
     let mut q_prev = BigUint::from(0u32);
     let mut q = BigUint::from(1u32);
     let needed_bits = convergent_bits(scale);
     while q.bits() < needed_bits {
-        let p_next = (&p * 2u32) + &p_prev;
-        let q_next = (&q * 2u32) + &q_prev;
+        let p_next = (&p << 1) + p_prev;
+        let q_next = (&q << 1) + q_prev;
         p_prev = p;
         q_prev = q;
         p = p_next;
         q = q_next;
     }
-    let one = BigUint::from(10u32).pow(scale);
     (&p * one) / q
 }
 
@@ -178,6 +222,22 @@ mod tests {
         for algo in [Sqrt2Algo::Newton, Sqrt2Algo::Cf] {
             assert!(format_sqrt2_with_algo(0, algo).is_err());
             assert!(format_sqrt2_with_algo(MAX_DIGITS + 1, algo).is_err());
+        }
+    }
+
+    #[test]
+    fn newton_isqrt_matches_builtin() {
+        for value in [0u32, 1, 2, 3, 10, 255, 256, 1_000] {
+            let n = BigUint::from(value);
+            assert_eq!(isqrt_newton(&n), n.sqrt());
+        }
+        assert_eq!(isqrt_u128(0), 0);
+        assert_eq!(isqrt_u128(1), 1);
+        assert_eq!(isqrt_u128(u128::MAX), (1u128 << 64) - 1);
+
+        for scale in [1u32, 20, 40, 80] {
+            let wide = BigUint::from(2u32) * BigUint::from(10u32).pow(scale);
+            assert_eq!(isqrt_newton(&wide), wide.sqrt(), "10^{scale}");
         }
     }
 

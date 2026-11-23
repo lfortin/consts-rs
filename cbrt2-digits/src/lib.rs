@@ -20,12 +20,17 @@
 //! [`Cbrt2Algo::Halley`] iterates Halley's method, which converges cubically.
 
 use num_bigint::BigUint;
+use num_integer::Integer;
 use num_traits::Zero;
 
 /// Largest digit count the CLI and library will compute.
 pub const MAX_DIGITS: u32 = 1_000_000;
 
 const GUARD_DIGITS: u32 = 20;
+
+/// `10^GUARD_DIGITS`. Small enough to live in a `u128`, so rounding does not
+/// rebuild it with `BigUint::pow` on every call.
+const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of ∛2.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -70,9 +75,10 @@ pub fn format_cbrt2(digits: u32) -> Result<String, &'static str> {
 /// digit is rounded half up.
 pub fn format_cbrt2_with_algo(digits: u32, algo: Cbrt2Algo) -> Result<String, &'static str> {
     let scale = scale_for_digits(digits)?;
+    let one = BigUint::from(10u32).pow(scale);
     let cbrt2_scaled = match algo {
-        Cbrt2Algo::Newton => cbrt2_newton(scale),
-        Cbrt2Algo::Halley => cbrt2_halley(scale),
+        Cbrt2Algo::Newton => cbrt2_newton(&one),
+        Cbrt2Algo::Halley => cbrt2_halley(&one),
     };
     format_scaled_cbrt2(cbrt2_scaled, digits)
 }
@@ -85,10 +91,10 @@ fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
 }
 
 fn format_scaled_cbrt2(cbrt2_scaled: BigUint, digits: u32) -> Result<String, &'static str> {
-    let guard = BigUint::from(10u32).pow(GUARD_DIGITS);
-    let half = &guard / 2u32;
-    let mut kept = &cbrt2_scaled / &guard;
-    if &cbrt2_scaled % &guard >= half {
+    let guard = BigUint::from(GUARD_SCALE);
+    let half = BigUint::from(GUARD_SCALE / 2);
+    let (mut kept, remainder) = cbrt2_scaled.div_rem(&guard);
+    if remainder >= half {
         kept += 1u32;
     }
 
@@ -105,9 +111,9 @@ fn format_scaled_cbrt2(cbrt2_scaled: BigUint, digits: u32) -> Result<String, &'s
 }
 
 /// `floor(∛2 * 10^scale)` by Newton-Raphson.
-fn cbrt2_newton(scale: u32) -> BigUint {
+fn cbrt2_newton(one: &BigUint) -> BigUint {
     // floor(∛2 * 10^scale) = icbrt(2 * 10^(3*scale))
-    let radicand = BigUint::from(2u32) * BigUint::from(10u32).pow(scale * 3);
+    let radicand = BigUint::from(2u32) * one * one * one;
     icbrt_newton(&radicand)
 }
 
@@ -117,9 +123,10 @@ fn icbrt_newton(n: &BigUint) -> BigUint {
         return BigUint::zero();
     }
 
-    let mut x = BigUint::from(1u32) << n.bits().div_ceil(3);
+    let mut x = icbrt_guess(n);
     loop {
-        let y = ((&x << 1) + n / (&x * &x)) / 3u32;
+        let square = &x * &x;
+        let y = ((&x << 1) + n / &square) / 3u32;
         if y >= x {
             break;
         }
@@ -132,8 +139,8 @@ fn icbrt_newton(n: &BigUint) -> BigUint {
 }
 
 /// `floor(∛2 * 10^scale)` by Halley's method.
-fn cbrt2_halley(scale: u32) -> BigUint {
-    let radicand = BigUint::from(2u32) * BigUint::from(10u32).pow(scale * 3);
+fn cbrt2_halley(one: &BigUint) -> BigUint {
+    let radicand = BigUint::from(2u32) * one * one * one;
     icbrt_halley(&radicand)
 }
 
@@ -143,10 +150,12 @@ fn icbrt_halley(n: &BigUint) -> BigUint {
         return BigUint::zero();
     }
 
-    let mut x = BigUint::from(1u32) << n.bits().div_ceil(3);
+    let two_n = n << 1;
+    let mut x = icbrt_guess(n);
     loop {
-        let cube = &x * &x * &x;
-        let numerator = &x * (&cube + (n << 1));
+        let square = &x * &x;
+        let cube = &square * &x;
+        let numerator = &x * (&cube + &two_n);
         let denominator = (&cube << 1) + n;
         let y = numerator / denominator;
         if y >= x {
@@ -163,6 +172,87 @@ fn icbrt_halley(n: &BigUint) -> BigUint {
             break;
         }
         x = next;
+    }
+    x
+}
+
+/// Upper bound on `floor(cbrt(n))` from the top bits of `n`.
+///
+/// The discarded bit count is a multiple of 3, and the kept width is at most
+/// 126, so `n < (top + 1) * 2^shift` and
+/// `cbrt(n) < (floor(cbrt(top)) + 1) * 2^(shift/3)`.
+fn icbrt_guess(n: &BigUint) -> BigUint {
+    let bits = n.bits();
+    let coarse = BigUint::from(1u32) << bits.div_ceil(3);
+    if bits <= 64 {
+        return coarse;
+    }
+    let mut shift = bits.saturating_sub(126);
+    let remainder = shift % 3;
+    if remainder != 0 {
+        shift += 3 - remainder;
+    }
+    if shift >= bits {
+        return coarse;
+    }
+    let Some(top) = top_u128(&n.to_u64_digits(), shift) else {
+        return coarse;
+    };
+    let root = icbrt_u128(top) + 1;
+    BigUint::from(root) << (shift / 3)
+}
+
+/// Low 128 bits of `digits >> shift`. `digits` is little-endian, as from
+/// [`BigUint::to_u64_digits`].
+fn top_u128(digits: &[u64], shift: u64) -> Option<u128> {
+    let limb = usize::try_from(shift / 64).ok()?;
+    let offset = (shift % 64) as u32;
+    if limb >= digits.len() {
+        return Some(0);
+    }
+    let mut acc = u128::from(digits[limb]) >> offset;
+    let mut pos = 64 - u64::from(offset);
+    let mut index = limb + 1;
+    while pos < 128 && index < digits.len() {
+        let room = 128 - pos;
+        let chunk = u128::from(digits[index]);
+        if room >= 64 {
+            acc |= chunk << pos;
+        } else {
+            let mask = (1u128 << room) - 1;
+            acc |= (chunk & mask) << pos;
+        }
+        pos += 64;
+        index += 1;
+    }
+    Some(acc)
+}
+
+fn icbrt_u128(n: u128) -> u128 {
+    if n < 2 {
+        return n;
+    }
+    let bits = 128 - n.leading_zeros();
+    let coarse = 1u128 << bits.div_ceil(3);
+    let approx = (n as f64).cbrt();
+    let mut x = if approx.is_finite() && approx >= 1.0 {
+        (approx as u128).saturating_add(2)
+    } else {
+        coarse
+    };
+    // `coarse` is an upper bound. A low `f64` estimate would make Newton stop early.
+    if x < 2 || n / x / x >= x {
+        x = coarse;
+    }
+    loop {
+        let y = ((x << 1) + n / (x * x)) / 3;
+        if y >= x {
+            break;
+        }
+        x = y;
+    }
+    while x > 1 && n / x / x < x {
+        x -= 1;
     }
     x
 }
@@ -191,6 +281,36 @@ mod tests {
         for algo in [Cbrt2Algo::Newton, Cbrt2Algo::Halley] {
             assert!(format_cbrt2_with_algo(0, algo).is_err());
             assert!(format_cbrt2_with_algo(MAX_DIGITS + 1, algo).is_err());
+        }
+    }
+
+    #[test]
+    fn cube_roots_match_builtin() {
+        for value in [0u32, 1, 2, 7, 8, 9, 26, 27, 1_000] {
+            let n = BigUint::from(value);
+            assert_eq!(icbrt_newton(&n), n.cbrt());
+            assert_eq!(icbrt_halley(&n), n.cbrt());
+        }
+        assert_eq!(icbrt_u128(0), 0);
+        assert_eq!(icbrt_u128(1), 1);
+        assert_eq!(icbrt_u128(8), 2);
+        let root = icbrt_u128(u128::MAX);
+        assert!(u128::MAX / root / root >= root);
+        assert!(u128::MAX / (root + 1) / (root + 1) < root + 1);
+
+        let perfect = BigUint::from(1u32) << 80;
+        let cube = &perfect * &perfect * &perfect;
+        assert_eq!(icbrt_newton(&cube), perfect);
+        assert_eq!(icbrt_halley(&cube), perfect);
+        let below = &cube - 1u32;
+        let one_less = &perfect - 1u32;
+        assert_eq!(icbrt_newton(&below), one_less);
+        assert_eq!(icbrt_halley(&below), one_less);
+
+        for scale in [1u32, 20, 40, 80] {
+            let wide = BigUint::from(2u32) * BigUint::from(10u32).pow(scale);
+            assert_eq!(icbrt_newton(&wide), wide.cbrt(), "newton 10^{scale}");
+            assert_eq!(icbrt_halley(&wide), wide.cbrt(), "halley 10^{scale}");
         }
     }
 

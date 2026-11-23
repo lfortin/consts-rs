@@ -22,12 +22,16 @@
 //! fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …].
 
 use num_bigint::BigUint;
-use num_traits::Zero;
+use num_traits::{Euclid, Zero};
 
 /// Largest digit count the CLI and library will compute.
 pub const MAX_DIGITS: u32 = 1_000_000;
 
 const GUARD_DIGITS: u32 = 20;
+
+/// `10^GUARD_DIGITS`. Small enough to live in a `u128`, so rounding does not
+/// rebuild it with `BigUint::pow` on every call.
+const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of e.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -91,10 +95,10 @@ fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
 }
 
 fn format_scaled_e(e_scaled: BigUint, digits: u32) -> Result<String, &'static str> {
-    let guard = BigUint::from(10u32).pow(GUARD_DIGITS);
-    let half = &guard / 2u32;
-    let mut kept = &e_scaled / &guard;
-    if &e_scaled % &guard >= half {
+    let guard = BigUint::from(GUARD_SCALE);
+    let half = BigUint::from(GUARD_SCALE / 2);
+    let (mut kept, remainder) = e_scaled.div_rem_euclid(&guard);
+    if remainder >= half {
         kept += 1u32;
     }
 
@@ -127,7 +131,7 @@ fn e_taylor(one: &BigUint) -> BigUint {
 
 fn e_binary_split(one: &BigUint, scale: u32) -> BigUint {
     let split = split_factorial(0, term_count(scale));
-    // Partial sum of Σ 1/k! is t/q. `p` is the product of numerator factors (all 1).
+    // Partial sum of Σ 1/k! is t/q. Numerator factors are all 1.
     (split.t * one) / split.q
 }
 
@@ -142,22 +146,34 @@ fn e_continued_fraction(one: &BigUint, scale: u32) -> BigUint {
     let mut p = BigUint::from(1u32);
     let mut q_prev = BigUint::from(1u32);
     let mut q = BigUint::from(0u32);
+    // Reused product `a * current`. Most partial quotients are 1 and skip it.
+    let mut term = BigUint::from(0u32);
     let needed_bits = convergent_bits(scale);
     let mut k = 0u32;
     loop {
-        let a = BigUint::from(partial_quotient(k));
-        let p_next = &a * &p + &p_prev;
-        let q_next = &a * &q + &q_prev;
-        p_prev = p;
-        q_prev = q;
-        p = p_next;
-        q = q_next;
+        let a = partial_quotient(k);
+        convergent_step(&mut p, &mut p_prev, &mut term, a);
+        convergent_step(&mut q, &mut q_prev, &mut term, a);
         k += 1;
         if q.bits() >= needed_bits {
             break;
         }
     }
-    (&p * one) / q
+    (p * one) / q
+}
+
+/// `curr = a * curr + prev`, and `prev` becomes the previous `curr`.
+///
+/// `a` stays a scalar. `term` keeps the buffer for `a * curr` when `a != 1`.
+fn convergent_step(curr: &mut BigUint, prev: &mut BigUint, term: &mut BigUint, a: u64) {
+    if a == 1 {
+        *prev += &*curr;
+    } else {
+        term.clone_from(curr);
+        *term *= a;
+        *prev += &*term;
+    }
+    std::mem::swap(curr, prev);
 }
 
 /// `a_0 = 2`; later terms are 1, except `a_{3m-1} = 2m`.
@@ -181,7 +197,43 @@ fn convergent_bits(scale: u32) -> u64 {
 }
 
 /// Number of factorial terms so the omitted tail is below one unit at `scale`.
+///
+/// Stirling's series without the `1/(12n)` term is strictly below `log10(n!)`.
+/// The smallest `n` with that estimate at least `scale + 2` therefore still
+/// has `n! > 10^(scale+2)`, and the sum through `k = n` leaves a tail under
+/// `10^-2` at this scale.
 fn term_count(scale: u32) -> u32 {
+    let target = f64::from(scale) + 2.0;
+    // For n >= 32, n*log10(n) - n*log10(e) already exceeds `scale + 2` once
+    // n >= 8*scale + 32. That is a hard upper bound, not the term count.
+    let mut hi = scale.saturating_mul(8).saturating_add(32);
+    if stirling_log10_factorial(hi) < target {
+        return term_count_linear(scale);
+    }
+    let mut lo = 1u32;
+    while lo < hi {
+        let mid = lo.midpoint(hi);
+        if stirling_log10_factorial(mid) < target {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    while stirling_log10_factorial(lo) < target {
+        lo = lo.saturating_add(1);
+    }
+    // Terms k = 0..=lo.
+    lo + 1
+}
+
+/// `log10(sqrt(2πn) (n/e)^n)`, which is less than `log10(n!)` for every n >= 1.
+fn stirling_log10_factorial(n: u32) -> f64 {
+    let n = f64::from(n);
+    (n + 0.5).mul_add(n.log10(), -n * std::f64::consts::LOG10_E)
+        + 0.5 * (2.0 * std::f64::consts::PI).log10()
+}
+
+fn term_count_linear(scale: u32) -> u32 {
     let mut log10_factorial = 0.0;
     let mut n = 0u32;
     let target = f64::from(scale) + 2.0;
@@ -189,17 +241,16 @@ fn term_count(scale: u32) -> u32 {
         n += 1;
         log10_factorial += f64::from(n).log10();
     }
-    // Terms k = 0..=n.
     n + 1
 }
 
 /// Binary split of Σ 1/k! for k in `[start, end)`.
 ///
-/// `q` is Π q(k) with q(0) = 1 and q(k) = k otherwise, and `p` is the product
-/// of the numerator factors. `t/q` equals Σ_{k=start}^{end-1} start_scale / k!,
-/// where the scale is the product of q over the interval.
+/// `q` is the product of the local factors (`1` when k is 0, otherwise k).
+/// Every numerator factor is 1, so that product is not stored. The merge is
+/// `t = left.t * right.q + right.t` and `q = left.q * right.q`. For an
+/// interval that starts at 0, `t/q` is the partial sum.
 struct FactorialSplit {
-    p: BigUint,
     q: BigUint,
     t: BigUint,
 }
@@ -212,7 +263,6 @@ fn split_factorial(start: u32, end: u32) -> FactorialSplit {
             BigUint::from(start)
         };
         return FactorialSplit {
-            p: BigUint::from(1u32),
             q,
             t: BigUint::from(1u32),
         };
@@ -221,10 +271,10 @@ fn split_factorial(start: u32, end: u32) -> FactorialSplit {
     let mid = start.midpoint(end);
     let left = split_factorial(start, mid);
     let right = split_factorial(mid, end);
+    let t = left.t * &right.q + right.t;
     FactorialSplit {
-        p: &left.p * &right.p,
-        q: &left.q * &right.q,
-        t: &left.t * &right.q + &right.t * &left.p,
+        q: left.q * right.q,
+        t,
     }
 }
 
@@ -252,6 +302,22 @@ mod tests {
         for algo in [EAlgo::Taylor, EAlgo::BinarySplit, EAlgo::Cf] {
             assert!(format_e_with_algo(0, algo).is_err());
             assert!(format_e_with_algo(MAX_DIGITS + 1, algo).is_err());
+        }
+    }
+
+    #[test]
+    fn term_count_covers_the_linear_bound() {
+        for scale in [1, 2, 20, 100, 1_000, 10_000] {
+            let fast = term_count(scale);
+            let linear = term_count_linear(scale);
+            assert!(
+                fast >= linear,
+                "scale {scale}: estimate {fast} is below the linear bound {linear}"
+            );
+            assert!(
+                fast - linear <= 2,
+                "scale {scale}: estimate {fast} is far above the linear bound {linear}"
+            );
         }
     }
 

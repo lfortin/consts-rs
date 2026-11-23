@@ -23,12 +23,17 @@
 //! also sums it with binary splitting.
 
 use num_bigint::{BigInt, BigUint};
+use num_integer::Integer;
 use num_traits::Zero;
 
 /// Largest digit count the CLI and library will compute.
 pub const MAX_DIGITS: u32 = 1_000_000;
 
 const GUARD_DIGITS: u32 = 20;
+
+/// `10^GUARD_DIGITS`. Small enough to live in a `u128`, so rounding does not
+/// rebuild it with `BigUint::pow` on every call.
+const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of pi.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -91,10 +96,10 @@ fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
 }
 
 fn format_scaled_pi(pi_scaled: BigUint, digits: u32) -> Result<String, &'static str> {
-    let guard = BigUint::from(10u32).pow(GUARD_DIGITS);
-    let half = &guard / 2u32;
-    let mut kept = &pi_scaled / &guard;
-    if &pi_scaled % &guard >= half {
+    let guard = BigUint::from(GUARD_SCALE);
+    let half = BigUint::from(GUARD_SCALE / 2);
+    let (mut kept, remainder) = pi_scaled.div_rem(&guard);
+    if remainder >= half {
         kept += 1u32;
     }
 
@@ -238,10 +243,12 @@ fn split_chudnovsky(start: u32, end: u32, q_factor: &BigUint) -> ChudSplit {
     let mid = start.midpoint(end);
     let left = split_chudnovsky(start, mid, q_factor);
     let right = split_chudnovsky(mid, end, q_factor);
-    let t = &left.t * BigInt::from(right.q.clone()) + BigInt::from(left.p.clone()) * &right.t;
+    // Borrow `right.q` for the product, then move it into the `BigInt`.
+    let q = left.q * &right.q;
+    let t = &left.t * BigInt::from(right.q) + BigInt::from(left.p.clone()) * &right.t;
     ChudSplit {
         p: left.p * right.p,
-        q: left.q * right.q,
+        q,
         t,
     }
 }
