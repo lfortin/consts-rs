@@ -20,7 +20,7 @@ cargo build --release
 
 The binaries are `target/release/pi`, `target/release/golden`, `target/release/sqrt2`, `target/release/cbrt2`, and `target/release/e`.
 
-Each command takes a required digit count from 1 to 1000000, plus `--version` (`-V`) and `--help` (`-h`). Every command also takes `--algo` (`-a`), which selects the algorithm.
+Each command takes a required digit count from 1 to 1000000000, plus `--version` (`-V`) and `--help` (`-h`). Every command also takes `--algo` (`-a`), which selects the algorithm.
 
 ```bash
 pi 50

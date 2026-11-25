@@ -27,7 +27,7 @@ use num_integer::Integer;
 use num_traits::Zero;
 
 /// Largest digit count the CLI and library will compute.
-pub const MAX_DIGITS: u32 = 1_000_000;
+pub const MAX_DIGITS: u32 = 1_000_000_000;
 
 const GUARD_DIGITS: u32 = 20;
 
@@ -36,21 +36,15 @@ const GUARD_DIGITS: u32 = 20;
 const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of pi.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum PiAlgo {
     /// Machin's formula, with each arctangent Taylor series summed term by term.
     Machin,
     /// Machin's formula, with each arctangent series summed by binary splitting.
     BinarySplit,
     /// Chudnovsky series for 1/π, summed by binary splitting.
+    #[default]
     Chudnovsky,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for PiAlgo {
-    fn default() -> Self {
-        Self::Machin
-    }
 }
 
 impl std::fmt::Display for PiAlgo {
@@ -90,7 +84,7 @@ pub fn format_pi_with_algo(digits: u32, algo: PiAlgo) -> Result<String, &'static
 
 fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
     if !(1..=MAX_DIGITS).contains(&digits) {
-        return Err("digit count must be from 1 to 1000000");
+        return Err("digit count must be from 1 to 1000000000");
     }
     Ok(digits - 1 + GUARD_DIGITS)
 }
@@ -103,16 +97,15 @@ fn format_scaled_pi(pi_scaled: BigUint, digits: u32) -> Result<String, &'static 
         kept += 1u32;
     }
 
-    let text = kept.to_string();
+    let mut text = kept.to_string();
     if text.len() != digits as usize {
         return Err("internal error: pi rounding produced an unexpected length");
     }
 
-    if digits == 1 {
-        Ok(text)
-    } else {
-        Ok(format!("{}.{}", &text[..1], &text[1..]))
+    if digits != 1 {
+        text.insert(1, '.');
     }
+    Ok(text)
 }
 
 fn pi_machin(one: &BigUint) -> BigUint {
@@ -236,21 +229,27 @@ struct ChudSplit {
 }
 
 fn split_chudnovsky(start: u32, end: u32, q_factor: &BigUint) -> ChudSplit {
-    if end - start == 1 {
-        return chudnovsky_term(start, q_factor);
+    const LEAF: u32 = 32;
+    if end - start <= LEAF {
+        let mut acc = chudnovsky_term(start, q_factor);
+        for k in start + 1..end {
+            acc = merge_chudnovsky(acc, chudnovsky_term(k, q_factor));
+        }
+        return acc;
     }
 
     let mid = start.midpoint(end);
     let left = split_chudnovsky(start, mid, q_factor);
     let right = split_chudnovsky(mid, end, q_factor);
-    // Borrow `right.q` for the product, then move it into the `BigInt`.
-    let q = left.q * &right.q;
-    let t = &left.t * BigInt::from(right.q) + BigInt::from(left.p.clone()) * &right.t;
-    ChudSplit {
-        p: left.p * right.p,
-        q,
-        t,
-    }
+    merge_chudnovsky(left, right)
+}
+
+fn merge_chudnovsky(left: ChudSplit, right: ChudSplit) -> ChudSplit {
+    let p = &left.p * &right.p;
+    let q = &left.q * &right.q;
+    // `t = left.t * right.q + left.p * right.t`. Move the factors after the products.
+    let t = left.t * BigInt::from(right.q) + BigInt::from(left.p) * right.t;
+    ChudSplit { p, q, t }
 }
 
 fn chudnovsky_term(k: u32, q_factor: &BigUint) -> ChudSplit {
@@ -281,29 +280,41 @@ fn chudnovsky_term(k: u32, q_factor: &BigUint) -> ChudSplit {
 }
 
 fn split_arctan(start: u32, end: u32, y: &BigUint) -> AtanSplit {
-    if end - start == 1 {
-        let t = if start.is_multiple_of(2) {
-            BigInt::from(1)
-        } else {
-            BigInt::from(-1)
-        };
-        return AtanSplit {
-            p: y.clone(),
-            q: BigUint::from(2 * u64::from(start) + 1),
-            t,
-        };
+    const LEAF: u32 = 32;
+    if end - start <= LEAF {
+        let mut acc = arctan_term(start, y);
+        for k in start + 1..end {
+            acc = merge_arctan(acc, arctan_term(k, y));
+        }
+        return acc;
     }
 
     let mid = start.midpoint(end);
     let left = split_arctan(start, mid, y);
     let right = split_arctan(mid, end, y);
-    let right_scale = &right.p * &right.q;
-    let t = &left.t * BigInt::from(right_scale) + &right.t * BigInt::from(left.q.clone());
+    merge_arctan(left, right)
+}
+
+fn arctan_term(k: u32, y: &BigUint) -> AtanSplit {
+    let t = if k.is_multiple_of(2) {
+        BigInt::from(1)
+    } else {
+        BigInt::from(-1)
+    };
     AtanSplit {
-        p: left.p * right.p,
-        q: left.q * right.q,
+        p: y.clone(),
+        q: BigUint::from(2 * u64::from(k) + 1),
         t,
     }
+}
+
+fn merge_arctan(left: AtanSplit, right: AtanSplit) -> AtanSplit {
+    let right_scale = &right.p * &right.q;
+    let p = &left.p * &right.p;
+    let q = &left.q * &right.q;
+    // `t = left.t * (right.p * right.q) + right.t * left.q`.
+    let t = left.t * BigInt::from(right_scale) + right.t * BigInt::from(left.q);
+    AtanSplit { p, q, t }
 }
 
 #[cfg(test)]
@@ -334,8 +345,8 @@ mod tests {
 
     #[test]
     fn algorithms_agree() {
-        assert_eq!(PiAlgo::default(), PiAlgo::Machin);
-        for digits in [1, 2, 5, 10, 50, 200] {
+        assert_eq!(PiAlgo::default(), PiAlgo::Chudnovsky);
+        for digits in [1, 2, 5, 10, 50, 200, 2_000] {
             let expected = format_pi(digits).unwrap();
             for algo in [PiAlgo::Machin, PiAlgo::BinarySplit, PiAlgo::Chudnovsky] {
                 assert_eq!(

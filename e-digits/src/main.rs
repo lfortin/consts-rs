@@ -32,10 +32,10 @@ struct Cli {
     version: bool,
 
     /// Algorithm used to compute e
-    #[arg(short, long, value_enum, default_value_t = EAlgo::Taylor)]
+    #[arg(short, long, value_enum, default_value_t = EAlgo::BinarySplit)]
     algo: EAlgo,
 
-    /// Number of significant digits to print (1 to 1000000)
+    /// Number of significant digits to print (1 to 1000000000)
     #[arg(value_parser = digits_in_range)]
     digits: u32,
 }

@@ -21,10 +21,10 @@
 
 use num_bigint::BigUint;
 use num_integer::Integer;
-use num_traits::Zero;
+use num_traits::{ToPrimitive, Zero};
 
 /// Largest digit count the CLI and library will compute.
-pub const MAX_DIGITS: u32 = 1_000_000;
+pub const MAX_DIGITS: u32 = 1_000_000_000;
 
 const GUARD_DIGITS: u32 = 20;
 
@@ -85,7 +85,7 @@ pub fn format_cbrt2_with_algo(digits: u32, algo: Cbrt2Algo) -> Result<String, &'
 
 fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
     if !(1..=MAX_DIGITS).contains(&digits) {
-        return Err("digit count must be from 1 to 1000000");
+        return Err("digit count must be from 1 to 1000000000");
     }
     Ok(digits - 1 + GUARD_DIGITS)
 }
@@ -98,16 +98,15 @@ fn format_scaled_cbrt2(cbrt2_scaled: BigUint, digits: u32) -> Result<String, &'s
         kept += 1u32;
     }
 
-    let text = kept.to_string();
+    let mut text = kept.to_string();
     if text.len() != digits as usize {
         return Err("internal error: cube root of 2 rounding produced an unexpected length");
     }
 
-    if digits == 1 {
-        Ok(text)
-    } else {
-        Ok(format!("{}.{}", &text[..1], &text[1..]))
+    if digits != 1 {
+        text.insert(1, '.');
     }
+    Ok(text)
 }
 
 /// `floor(∛2 * 10^scale)` by Newton-Raphson.
@@ -117,25 +116,9 @@ fn cbrt2_newton(one: &BigUint) -> BigUint {
     icbrt_newton(&radicand)
 }
 
-/// Floor of the cube root of `n`, by `x_{k+1} = (2 x_k + n / x_k^2) / 3`.
+/// Floor of the cube root of `n`, by precision-doubling Newton steps.
 fn icbrt_newton(n: &BigUint) -> BigUint {
-    if n.is_zero() {
-        return BigUint::zero();
-    }
-
-    let mut x = icbrt_guess(n);
-    loop {
-        let square = &x * &x;
-        let y = ((&x << 1) + n / &square) / 3u32;
-        if y >= x {
-            break;
-        }
-        x = y;
-    }
-    while &x * &x * &x > *n {
-        x -= 1u32;
-    }
-    x
+    icbrt_doubling(n, false)
 }
 
 /// `floor(∛2 * 10^scale)` by Halley's method.
@@ -144,88 +127,85 @@ fn cbrt2_halley(one: &BigUint) -> BigUint {
     icbrt_halley(&radicand)
 }
 
-/// Floor of the cube root of `n`, by `x_{k+1} = x_k (x_k^3 + 2 n) / (2 x_k^3 + n)`.
+/// Floor of the cube root of `n`, by precision-doubling Halley steps.
 fn icbrt_halley(n: &BigUint) -> BigUint {
+    icbrt_doubling(n, true)
+}
+
+/// Floor of the cube root of `n`.
+///
+/// Values that fit in `u128` use [`icbrt_u128`]. Larger values take the cube
+/// root of the high third, shift it back, and apply one Newton or Halley
+/// correction, then walk at most one step to the exact floor.
+fn icbrt_doubling(n: &BigUint, halley: bool) -> BigUint {
     if n.is_zero() {
         return BigUint::zero();
     }
+    if let Some(small) = n.to_u128() {
+        return BigUint::from(icbrt_u128(small));
+    }
 
-    let two_n = n << 1;
-    let mut x = icbrt_guess(n);
-    loop {
-        let square = &x * &x;
-        let cube = &square * &x;
-        let numerator = &x * (&cube + &two_n);
-        let denominator = (&cube << 1) + n;
-        let y = numerator / denominator;
-        if y >= x {
-            break;
+    let root_bits = n.bits().div_ceil(3);
+    let m = (root_bits / 2).max(1).min(root_bits - 1);
+    let s = icbrt_doubling(&(n >> (3 * m)), halley);
+    let mut x = s << m;
+    if x.is_zero() {
+        x = BigUint::from(1u32);
+    }
+    x = if halley {
+        halley_step(&x, n)
+    } else {
+        newton_step(&x, n)
+    };
+    finish_icbrt(x, n)
+}
+
+/// The half-precision seed leaves an O(1) error after one correction.
+/// Another Newton step, then a single ±1, lands on the floor.
+fn finish_icbrt(mut x: BigUint, n: &BigUint) -> BigUint {
+    if x.is_zero() {
+        return BigUint::from(u32::from(!n.is_zero()));
+    }
+    if cube_gt(&x, n) {
+        let y = newton_step(&x, n);
+        if !y.is_zero() && y < x {
+            x = y;
         }
-        x = y;
-    }
-    while &x * &x * &x > *n {
-        x -= 1u32;
-    }
-    loop {
+    } else {
         let next = &x + 1u32;
-        if &next * &next * &next > *n {
-            break;
+        if !cube_gt(&next, n) {
+            let y = newton_step(&x, n);
+            x = if y > x { y } else { next };
         }
-        x = next;
+    }
+    if cube_gt(&x, n) {
+        x -= 1u32;
+    } else {
+        let next = &x + 1u32;
+        if !cube_gt(&next, n) {
+            x = next;
+        }
     }
     x
 }
 
-/// Upper bound on `floor(cbrt(n))` from the top bits of `n`.
-///
-/// The discarded bit count is a multiple of 3, and the kept width is at most
-/// 126, so `n < (top + 1) * 2^shift` and
-/// `cbrt(n) < (floor(cbrt(top)) + 1) * 2^(shift/3)`.
-fn icbrt_guess(n: &BigUint) -> BigUint {
-    let bits = n.bits();
-    let coarse = BigUint::from(1u32) << bits.div_ceil(3);
-    if bits <= 64 {
-        return coarse;
-    }
-    let mut shift = bits.saturating_sub(126);
-    let remainder = shift % 3;
-    if remainder != 0 {
-        shift += 3 - remainder;
-    }
-    if shift >= bits {
-        return coarse;
-    }
-    let Some(top) = top_u128(&n.to_u64_digits(), shift) else {
-        return coarse;
-    };
-    let root = icbrt_u128(top) + 1;
-    BigUint::from(root) << (shift / 3)
+/// `x_{k+1} = (2 x_k + n / x_k^2) / 3`.
+fn newton_step(x: &BigUint, n: &BigUint) -> BigUint {
+    let square = x * x;
+    ((x << 1) + n / square) / 3u32
 }
 
-/// Low 128 bits of `digits >> shift`. `digits` is little-endian, as from
-/// [`BigUint::to_u64_digits`].
-fn top_u128(digits: &[u64], shift: u64) -> Option<u128> {
-    let limb = usize::try_from(shift / 64).ok()?;
-    let offset = (shift % 64) as u32;
-    if limb >= digits.len() {
-        return Some(0);
-    }
-    let mut acc = u128::from(digits[limb]) >> offset;
-    let mut pos = 64 - u64::from(offset);
-    let mut index = limb + 1;
-    while pos < 128 && index < digits.len() {
-        let room = 128 - pos;
-        let chunk = u128::from(digits[index]);
-        if room >= 64 {
-            acc |= chunk << pos;
-        } else {
-            let mask = (1u128 << room) - 1;
-            acc |= (chunk & mask) << pos;
-        }
-        pos += 64;
-        index += 1;
-    }
-    Some(acc)
+/// `x_{k+1} = x_k (x_k^3 + 2 n) / (2 x_k^3 + n)`.
+fn halley_step(x: &BigUint, n: &BigUint) -> BigUint {
+    let cube = x * x * x;
+    let numerator = x * (&cube + (n << 1));
+    let denominator = (&cube << 1) + n;
+    numerator / denominator
+}
+
+/// `x^3 > n`.
+fn cube_gt(x: &BigUint, n: &BigUint) -> bool {
+    !x.is_zero() && n / x / x < *x
 }
 
 fn icbrt_u128(n: u128) -> u128 {
@@ -312,6 +292,15 @@ mod tests {
             assert_eq!(icbrt_newton(&wide), wide.cbrt(), "newton 10^{scale}");
             assert_eq!(icbrt_halley(&wide), wide.cbrt(), "halley 10^{scale}");
         }
+
+        let root = (BigUint::from(1u32) << 1_500) + 3u32;
+        let cube = &root * &root * &root;
+        let below = &cube - 1u32;
+        let one_less = &root - 1u32;
+        assert_eq!(icbrt_newton(&cube), root);
+        assert_eq!(icbrt_halley(&cube), root);
+        assert_eq!(icbrt_newton(&below), one_less);
+        assert_eq!(icbrt_halley(&below), one_less);
     }
 
     #[test]

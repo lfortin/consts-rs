@@ -25,7 +25,7 @@ use num_bigint::BigUint;
 use num_traits::{Euclid, ToPrimitive, Zero};
 
 /// Largest digit count the CLI and library will compute.
-pub const MAX_DIGITS: u32 = 1_000_000;
+pub const MAX_DIGITS: u32 = 1_000_000_000;
 
 const GUARD_DIGITS: u32 = 20;
 
@@ -89,7 +89,7 @@ pub fn format_golden_with_algo(digits: u32, algo: GoldenAlgo) -> Result<String, 
 
 fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
     if !(1..=MAX_DIGITS).contains(&digits) {
-        return Err("digit count must be from 1 to 1000000");
+        return Err("digit count must be from 1 to 1000000000");
     }
     Ok(digits - 1 + GUARD_DIGITS)
 }
@@ -102,16 +102,15 @@ fn format_scaled_golden(phi_scaled: BigUint, digits: u32) -> Result<String, &'st
         kept += 1u32;
     }
 
-    let text = kept.to_string();
+    let mut text = kept.to_string();
     if text.len() != digits as usize {
         return Err("internal error: golden ratio rounding produced an unexpected length");
     }
 
-    if digits == 1 {
-        Ok(text)
-    } else {
-        Ok(format!("{}.{}", &text[..1], &text[1..]))
+    if digits != 1 {
+        text.insert(1, '.');
     }
+    Ok(text)
 }
 
 fn phi_from_sqrt5(one: &BigUint, sqrt5_scaled: BigUint) -> BigUint {
@@ -128,45 +127,44 @@ fn sqrt5_newton(one: &BigUint) -> BigUint {
 /// `floor(√5 * 10^scale)` by integer square root.
 fn sqrt5_isqrt(one: &BigUint) -> BigUint {
     let radicand = BigUint::from(5u32) * one * one;
-    radicand.sqrt()
+    isqrt_newton(&radicand)
 }
 
-/// Floor of the square root of `n`, by the Newton (Heron) iteration.
-fn isqrt_newton(n: &BigUint) -> BigUint {
-    if n.is_zero() {
-        return BigUint::zero();
-    }
-
-    let mut x = isqrt_guess(n);
-    loop {
-        let y = (&x + n / &x) >> 1;
-        if y >= x {
-            return x;
-        }
-        x = y;
-    }
-}
-
-/// Upper bound on `floor(sqrt(n))` with about 64 bits of precision.
+/// Floor of the square root of `n`.
 ///
-/// The top 127 or 128 bits are an integer square root, then shifted back.
-/// `n < (top + 1) * 2^shift` with `shift` even, so
-/// `sqrt(n) < (floor(sqrt(top)) + 1) * 2^(shift/2)`.
-fn isqrt_guess(n: &BigUint) -> BigUint {
-    let bits = n.bits();
-    let coarse = BigUint::from(1u32) << bits.div_ceil(2);
-    if bits <= 128 {
-        return coarse;
-    }
-    let mut shift = bits - 128;
-    if !shift.is_multiple_of(2) {
-        shift += 1;
-    }
-    let Some(top) = (n >> shift).to_u128() else {
-        return coarse;
+/// Values that fit in `u128` use [`isqrt_u128`]. Larger values take the square
+/// root of the high half, shift it back, and apply one Heron correction:
+/// `q = floor((n - x^2) / (2x))`, then `x + q`, with a final decrement when
+/// that lands one above the root.
+fn isqrt_newton(n: &BigUint) -> BigUint {
+    let Some(small) = n.to_u128() else {
+        return isqrt_wide(n);
     };
-    let root = isqrt_u128(top) + 1;
-    BigUint::from(root) << (shift / 2)
+    BigUint::from(isqrt_u128(small))
+}
+
+fn isqrt_wide(n: &BigUint) -> BigUint {
+    let bits = n.bits();
+    let m = (bits / 4).max(1);
+    let s = isqrt_newton(&(n >> (2 * m)));
+    let mut x = s << m;
+    if x.is_zero() {
+        x = BigUint::from(1u32);
+    }
+    let square = &x * &x;
+    if &square <= n {
+        let q = (n - &square) / (&x << 1);
+        x += q;
+    }
+    if &x * &x > *n {
+        x -= 1u32;
+    } else {
+        let next = &x + 1u32;
+        if &next * &next <= *n {
+            x = next;
+        }
+    }
+    x
 }
 
 fn isqrt_u128(n: u128) -> u128 {
@@ -186,31 +184,39 @@ fn isqrt_u128(n: u128) -> u128 {
 
 /// `floor(φ * 10^scale)` from continued-fraction convergents.
 ///
-/// φ = [1; 1, 1, …], so every partial quotient is 1 and the convergents are
-/// consecutive Fibonacci ratios: `p_0 = 1`, `q_0 = 1`, `p_1 = 2`, `q_1 = 1`,
-/// then `p_k = p_{k-1} + p_{k-2}` and `q_k = q_{k-1} + q_{k-2}`.
-/// The error of `p/q` is less than `1/(q q_next)`.
+/// φ = [1; 1, 1, …], so the convergents are consecutive Fibonacci ratios
+/// `F_{n+1}/F_n`. `F_n` comes from fast doubling. The error of `p/q` is less
+/// than `1/(q q_next)`, and `q_next > q`, so a denominator whose bit length
+/// reaches `bit_limit` is already closer than half a unit at this scale.
 fn golden_continued_fraction(one: &BigUint) -> BigUint {
-    let mut p_prev = BigUint::from(1u32);
-    let mut q_prev = BigUint::from(1u32);
-    let mut p = BigUint::from(2u32);
-    let mut q = BigUint::from(1u32);
-    // |φ - p/q| < 1/(q q_next). q_next > q, so q q_next > q^2 >= 2^(2*(q.bits()-1)).
     // half_unit is 2 * 10^scale. Once q.bits() reaches half_unit.bits()/2 + 2,
     // 2^(2*(q.bits()-1)) exceeds half_unit and the error is under half a unit.
     let bit_limit = (one * 2u32).bits() / 2 + 2;
-    loop {
-        if q.bits() >= bit_limit {
-            break;
-        }
-        let p_next = &p + p_prev;
-        p_prev = p;
-        p = p_next;
-        let q_next = &q + q_prev;
-        q_prev = q;
-        q = q_next;
+    // F_n ≈ φ^n / √5, and 1/log2(φ) < 14405/10000.
+    let n = (bit_limit + 2) * 14_405 / 10_000 + 1;
+    let (mut q, mut p) = fib_pair(n.max(2));
+    while q.bits() < bit_limit {
+        let p_next = &p + &q;
+        q = std::mem::replace(&mut p, p_next);
     }
     (p * one) / q
+}
+
+/// `(F(n), F(n+1))` by fast doubling.
+fn fib_pair(n: u64) -> (BigUint, BigUint) {
+    if n == 0 {
+        return (BigUint::from(0u32), BigUint::from(1u32));
+    }
+    let (a, b) = fib_pair(n / 2);
+    // F(2k) = F(k) (2 F(k+1) - F(k)), F(2k+1) = F(k+1)^2 + F(k)^2.
+    let c = &a * ((&b << 1) - &a);
+    let d = &a * &a + &b * &b;
+    if n.is_multiple_of(2) {
+        (c, d)
+    } else {
+        let sum = &c + &d;
+        (d, sum)
+    }
 }
 
 #[cfg(test)]
@@ -255,6 +261,13 @@ mod tests {
             wide *= BigUint::from(10u32).pow(scale);
             assert_eq!(isqrt_newton(&wide), wide.sqrt(), "scale {scale}");
         }
+
+        let root = (BigUint::from(1u32) << 2_000) + 3u32;
+        let square = &root * &root;
+        assert_eq!(isqrt_newton(&square), root);
+        assert_eq!(isqrt_newton(&(&square - 1u32)), &root - 1u32);
+        let wide_bits = (BigUint::from(1u32) << 4_096) - 1u32;
+        assert_eq!(isqrt_newton(&wide_bits), wide_bits.sqrt());
     }
 
     #[test]

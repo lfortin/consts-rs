@@ -25,7 +25,7 @@ golden --version
 golden --help
 ```
 
-`DIGITS` is required. It is the number of significant digits, from 1 to 1000000. A count of one prints `2`, because 1.618… rounds half up. Larger counts print a decimal point after the leading `1`. The last digit is rounded half up.
+`DIGITS` is required. It is the number of significant digits, from 1 to 1000000000. A count of one prints `2`, because 1.618… rounds half up. Larger counts print a decimal point after the leading `1`. The last digit is rounded half up.
 
 `--algo` (`-a`) selects how the golden ratio is computed. `newton` (the default) and `isqrt` both evaluate (1 + √5) / 2. `newton` finds √5 with Newton-Raphson. `isqrt` uses integer square root. `cf` uses the continued fraction φ = [1; 1, 1, …], whose convergents are consecutive Fibonacci ratios. All three print the same digits.
 
@@ -42,7 +42,7 @@ golden 10
 
 `--version` (`-V`) prints the version from `Cargo.toml` with a `v` prefix, for example `v0.1.0`. `--help` (`-h`) prints usage.
 
-Requests above 1000000 digits are rejected so the program does not run until it exhausts memory.
+Requests above 1000000000 digits are rejected so the program does not run until it exhausts memory.
 
 ## License
 

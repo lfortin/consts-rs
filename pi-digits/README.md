@@ -23,9 +23,9 @@ pi --version
 pi --help
 ```
 
-`DIGITS` is required. It is the number of significant digits, from 1 to 1000000. A count of one prints `3`. Larger counts print a decimal point after the leading `3`. The last digit is rounded half up.
+`DIGITS` is required. It is the number of significant digits, from 1 to 1000000000. A count of one prints `3`. Larger counts print a decimal point after the leading `3`. The last digit is rounded half up.
 
-`--algo` (`-a`) selects how pi is computed. `machin` (the default) and `binary-split` both use Machin's formula, π/4 = 4·arctan(1/5) − arctan(1/239). `machin` sums each arctangent Taylor series term by term. `binary-split` sums that same series with binary splitting. `chudnovsky` uses the Chudnovsky series for 1/π and also sums it with binary splitting. All three print the same digits.
+`--algo` (`-a`) selects how pi is computed. `chudnovsky` (the default) uses the Chudnovsky series for 1/π, summed by binary splitting. `machin` and `binary-split` both use Machin's formula, π/4 = 4·arctan(1/5) − arctan(1/239). `machin` sums each arctangent Taylor series term by term. `binary-split` sums that same series with binary splitting. All three print the same digits.
 
 ```text
 pi 1
@@ -40,7 +40,7 @@ pi 10
 
 `--version` (`-V`) prints the version from `Cargo.toml` with a `v` prefix, for example `v0.1.0`. `--help` (`-h`) prints usage.
 
-Requests above 1000000 digits are rejected so the program does not run until it exhausts memory.
+Requests above 1000000000 digits are rejected so the program does not run until it exhausts memory.
 
 ## License
 

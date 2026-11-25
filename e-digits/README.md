@@ -23,9 +23,9 @@ e --version
 e --help
 ```
 
-`DIGITS` is required. It is the number of significant digits, from 1 to 1000000. A count of one prints `3`, because 2.718… rounds half up. Larger counts print a decimal point after the leading `2`. The last digit is rounded half up.
+`DIGITS` is required. It is the number of significant digits, from 1 to 1000000000. A count of one prints `3`, because 2.718… rounds half up. Larger counts print a decimal point after the leading `2`. The last digit is rounded half up.
 
-`--algo` (`-a`) selects how e is computed. `taylor` (the default) and `binary-split` both use the series e = Σ 1/n!. `taylor` divides by each integer in turn. `binary-split` multiplies those factors in a tree and divides once. `cf` uses the continued fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …]. All three print the same digits.
+`--algo` (`-a`) selects how e is computed. `binary-split` (the default) and `taylor` both use the series e = Σ 1/n!. `binary-split` multiplies those factors in a tree and divides once. `taylor` divides by each integer in turn. `cf` uses the continued fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …]. All three print the same digits.
 
 ```text
 e 1
@@ -40,7 +40,7 @@ e 10
 
 `--version` (`-V`) prints the version from `Cargo.toml` with a `v` prefix, for example `v0.1.0`. `--help` (`-h`) prints usage.
 
-Requests above 1000000 digits are rejected so the program does not run until it exhausts memory.
+Requests above 1000000000 digits are rejected so the program does not run until it exhausts memory.
 
 ## License
 

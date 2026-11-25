@@ -25,7 +25,7 @@ use num_bigint::BigUint;
 use num_traits::{Euclid, Zero};
 
 /// Largest digit count the CLI and library will compute.
-pub const MAX_DIGITS: u32 = 1_000_000;
+pub const MAX_DIGITS: u32 = 1_000_000_000;
 
 const GUARD_DIGITS: u32 = 20;
 
@@ -34,21 +34,15 @@ const GUARD_DIGITS: u32 = 20;
 const GUARD_SCALE: u128 = 10_u128.pow(GUARD_DIGITS);
 
 /// Algorithm used to compute significant digits of e.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum EAlgo {
     /// Series e = Σ 1/n!, divided by each integer in turn.
     Taylor,
     /// Series e = Σ 1/n!, summed by binary splitting.
+    #[default]
     BinarySplit,
     /// Continued fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …].
     Cf,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for EAlgo {
-    fn default() -> Self {
-        Self::Taylor
-    }
 }
 
 impl std::fmt::Display for EAlgo {
@@ -89,7 +83,7 @@ pub fn format_e_with_algo(digits: u32, algo: EAlgo) -> Result<String, &'static s
 
 fn scale_for_digits(digits: u32) -> Result<u32, &'static str> {
     if !(1..=MAX_DIGITS).contains(&digits) {
-        return Err("digit count must be from 1 to 1000000");
+        return Err("digit count must be from 1 to 1000000000");
     }
     Ok(digits - 1 + GUARD_DIGITS)
 }
@@ -102,16 +96,15 @@ fn format_scaled_e(e_scaled: BigUint, digits: u32) -> Result<String, &'static st
         kept += 1u32;
     }
 
-    let text = kept.to_string();
+    let mut text = kept.to_string();
     if text.len() != digits as usize {
         return Err("internal error: Euler's number rounding produced an unexpected length");
     }
 
-    if digits == 1 {
-        Ok(text)
-    } else {
-        Ok(format!("{}.{}", &text[..1], &text[1..]))
+    if digits != 1 {
+        text.insert(1, '.');
     }
+    Ok(text)
 }
 
 fn e_taylor(one: &BigUint) -> BigUint {
@@ -138,42 +131,85 @@ fn e_binary_split(one: &BigUint, scale: u32) -> BigUint {
 /// `floor(e * 10^scale)` from continued-fraction convergents.
 ///
 /// e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …], so `a_0 = 2` and, for m ≥ 1,
-/// `a_{3m-2} = 1`, `a_{3m-1} = 2m`, `a_{3m} = 1`. The convergents obey
-/// `p_k = a_k p_{k-1} + p_{k-2}` and `q_k = a_k q_{k-1} + q_{k-2}`,
-/// starting from `p_{-2} = 0`, `p_{-1} = 1`, `q_{-2} = 1`, `q_{-1} = 0`.
+/// `a_{3m-2} = 1`, `a_{3m-1} = 2m`, `a_{3m} = 1`. The product of the transfer
+/// matrices `[[a_k, 1], [1, 0]]` is computed by binary splitting. Most partial
+/// quotients are 1, so those factors stay additions.
 fn e_continued_fraction(one: &BigUint, scale: u32) -> BigUint {
-    let mut p_prev = BigUint::from(0u32);
-    let mut p = BigUint::from(1u32);
-    let mut q_prev = BigUint::from(1u32);
-    let mut q = BigUint::from(0u32);
-    // Reused product `a * current`. Most partial quotients are 1 and skip it.
-    let mut term = BigUint::from(0u32);
     let needed_bits = convergent_bits(scale);
-    let mut k = 0u32;
-    loop {
-        let a = partial_quotient(k);
-        convergent_step(&mut p, &mut p_prev, &mut term, a);
-        convergent_step(&mut q, &mut q_prev, &mut term, a);
-        k += 1;
-        if q.bits() >= needed_bits {
-            break;
+    let mut terms = 4u32;
+    let mat = loop {
+        let mat = split_e_cf(0, terms);
+        if mat.q.bits() >= needed_bits {
+            break mat;
         }
-    }
-    (p * one) / q
+        if terms > needed_bits as u32 {
+            break extend_e_cf(mat, terms, needed_bits);
+        }
+        terms = terms.saturating_mul(2);
+    };
+    (mat.p * one) / mat.q
 }
 
-/// `curr = a * curr + prev`, and `prev` becomes the previous `curr`.
+/// Product of transfer matrices for partial quotients `k` in `[start, end)`.
 ///
-/// `a` stays a scalar. `term` keeps the buffer for `a * curr` when `a != 1`.
-fn convergent_step(curr: &mut BigUint, prev: &mut BigUint, term: &mut BigUint, a: u64) {
-    if a == 1 {
-        *prev += &*curr;
-    } else {
-        term.clone_from(curr);
-        *term *= a;
-        *prev += &*term;
+/// The first column is the convergent numerator and denominator when `start`
+/// is 0.
+struct CfMat {
+    p: BigUint,
+    r: BigUint,
+    q: BigUint,
+    s: BigUint,
+}
+
+fn split_e_cf(start: u32, end: u32) -> CfMat {
+    const LEAF: u32 = 32;
+    if end - start <= LEAF {
+        let mut mat = CfMat {
+            p: BigUint::from(1u32),
+            r: BigUint::from(0u32),
+            q: BigUint::from(0u32),
+            s: BigUint::from(1u32),
+        };
+        for k in start..end {
+            apply_quotient(&mut mat, partial_quotient(k));
+        }
+        return mat;
     }
-    std::mem::swap(curr, prev);
+
+    let mid = start.midpoint(end);
+    let left = split_e_cf(start, mid);
+    let right = split_e_cf(mid, end);
+    // [[p, r], [q, s]] = left * right.
+    CfMat {
+        p: &left.p * &right.p + &left.r * &right.q,
+        r: &left.p * &right.r + &left.r * &right.s,
+        q: &left.q * &right.p + &left.s * &right.q,
+        s: &left.q * &right.r + &left.s * &right.s,
+    }
+}
+
+/// `P = P * [[a, 1], [1, 0]]`.
+fn apply_quotient(mat: &mut CfMat, a: u64) {
+    let new_p = if a == 1 {
+        &mat.p + &mat.r
+    } else {
+        &mat.p * a + &mat.r
+    };
+    let new_q = if a == 1 {
+        &mat.q + &mat.s
+    } else {
+        &mat.q * a + &mat.s
+    };
+    mat.r = std::mem::replace(&mut mat.p, new_p);
+    mat.s = std::mem::replace(&mut mat.q, new_q);
+}
+
+fn extend_e_cf(mut mat: CfMat, mut k: u32, needed_bits: u64) -> CfMat {
+    while mat.q.bits() < needed_bits {
+        apply_quotient(&mut mat, partial_quotient(k));
+        k += 1;
+    }
+    mat
 }
 
 /// `a_0 = 2`; later terms are 1, except `a_{3m-1} = 2m`.
@@ -256,16 +292,20 @@ struct FactorialSplit {
 }
 
 fn split_factorial(start: u32, end: u32) -> FactorialSplit {
-    if end - start == 1 {
-        let q = if start == 0 {
-            BigUint::from(1u32)
-        } else {
-            BigUint::from(start)
-        };
-        return FactorialSplit {
-            q,
-            t: BigUint::from(1u32),
-        };
+    const LEAF: u32 = 32;
+    if end - start <= LEAF {
+        let mut q = BigUint::from(1u32);
+        let mut t = BigUint::from(0u32);
+        for k in start..end {
+            let factor = if k == 0 {
+                BigUint::from(1u32)
+            } else {
+                BigUint::from(k)
+            };
+            t = t * &factor + 1u32;
+            q *= &factor;
+        }
+        return FactorialSplit { q, t };
     }
 
     let mid = start.midpoint(end);
@@ -323,7 +363,7 @@ mod tests {
 
     #[test]
     fn algorithms_agree() {
-        assert_eq!(EAlgo::default(), EAlgo::Taylor);
+        assert_eq!(EAlgo::default(), EAlgo::BinarySplit);
         for digits in [1, 2, 5, 10, 50, 200] {
             let expected = format_e(digits).unwrap();
             for algo in [EAlgo::Taylor, EAlgo::BinarySplit, EAlgo::Cf] {
