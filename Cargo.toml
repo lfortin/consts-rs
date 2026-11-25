@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["pi-digits", "golden-digits", "sqrt2-digits", "cbrt2-digits", "e-digits"]
+members = ["pi-digits", "golden-digits", "sqrt2-digits", "sqrt3-digits", "cbrt2-digits", "e-digits"]
