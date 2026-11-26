@@ -19,6 +19,10 @@
 //! [`Sqrt3Algo::Newton`] iterates Heron's method. [`Sqrt3Algo::Cf`] uses the
 //! continued fraction √3 = [1; 1, 2, 1, 2, …].
 
+mod resume;
+
+pub use resume::format_sqrt3_resumable;
+
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};

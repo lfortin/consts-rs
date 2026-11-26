@@ -21,6 +21,10 @@
 //! `Isqrt` uses integer square root. [`GoldenAlgo::Cf`] uses the continued
 //! fraction φ = [1; 1, 1, …], whose convergents are consecutive Fibonacci ratios.
 
+mod resume;
+
+pub use resume::format_golden_resumable;
+
 use num_bigint::BigUint;
 use num_traits::{Euclid, ToPrimitive, Zero};
 

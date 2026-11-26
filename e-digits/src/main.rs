@@ -14,9 +14,11 @@
 // along with this program in the file LICENSE. If not, see
 // <https://www.gnu.org/licenses/>.
 
+use std::path::PathBuf;
+
 use clap::error::ErrorKind;
 use clap::{CommandFactory, Parser};
-use e_digits::{EAlgo, MAX_DIGITS, format_e_with_algo};
+use e_digits::{EAlgo, MAX_DIGITS, format_e_resumable, format_e_with_algo};
 
 const VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 
@@ -34,6 +36,10 @@ struct Cli {
     /// Algorithm used to compute e
     #[arg(short, long, value_enum, default_value_t = EAlgo::BinarySplit)]
     algo: EAlgo,
+
+    /// Write `e-<algo>.json` in the current directory and resume from it
+    #[arg(long)]
+    resumable: bool,
 
     /// Number of significant digits to print (1 to 1000000000)
     #[arg(value_parser = digits_in_range)]
@@ -68,7 +74,13 @@ fn main() {
         println!("{VERSION}");
         return;
     }
-    match format_e_with_algo(cli.digits, cli.algo) {
+    let result = if cli.resumable {
+        let path = PathBuf::from(format!("e-{}.json", cli.algo));
+        format_e_resumable(cli.digits, cli.algo, &path)
+    } else {
+        format_e_with_algo(cli.digits, cli.algo).map_err(str::to_string)
+    };
+    match result {
         Ok(text) => println!("{text}"),
         Err(message) => {
             eprintln!("error: {message}");

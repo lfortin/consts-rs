@@ -19,6 +19,10 @@
 //! [`Sqrt2Algo::Newton`] iterates Heron's method. [`Sqrt2Algo::Cf`] uses the
 //! continued fraction √2 = [1; 2, 2, 2, …].
 
+mod resume;
+
+pub use resume::format_sqrt2_resumable;
+
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};

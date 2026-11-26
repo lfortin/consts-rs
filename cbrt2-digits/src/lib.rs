@@ -19,6 +19,10 @@
 //! [`Cbrt2Algo::Newton`] iterates Newton's method for `x^3 - 2 = 0`.
 //! [`Cbrt2Algo::Halley`] iterates Halley's method, which converges cubically.
 
+mod resume;
+
+pub use resume::format_cbrt2_resumable;
+
 use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{ToPrimitive, Zero};

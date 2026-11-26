@@ -1,0 +1,14 @@
+[package]
+name = "checkpoint"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "LGPL-3.0-or-later"
+description = "JSON checkpoints for digit computations"
+
+[dependencies]
+num-bigint = "0.4"
+num-integer = "0.1"
+num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

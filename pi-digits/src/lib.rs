@@ -22,6 +22,10 @@
 //! splitting. [`PiAlgo::Chudnovsky`] uses the Chudnovsky series for 1/π and
 //! also sums it with binary splitting.
 
+mod resume;
+
+pub use resume::format_pi_resumable;
+
 use num_bigint::{BigInt, BigUint};
 use num_integer::Integer;
 use num_traits::Zero;

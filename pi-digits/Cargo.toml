@@ -12,7 +12,12 @@ name = "pi"
 path = "src/main.rs"
 
 [dependencies]
+checkpoint = { path = "../checkpoint" }
 clap = { version = "4", features = ["derive"] }
 num-bigint = "0.4"
 num-integer = "0.1"
 num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

@@ -21,6 +21,10 @@
 //! factors in a tree and divides once. [`EAlgo::Cf`] uses the continued
 //! fraction e = [2; 1, 2, 1, 1, 4, 1, 1, 6, …].
 
+mod resume;
+
+pub use resume::format_e_resumable;
+
 use num_bigint::BigUint;
 use num_traits::{Euclid, Zero};
 
