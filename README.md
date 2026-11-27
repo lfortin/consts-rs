@@ -35,11 +35,7 @@ pi --resumable 50
 
 ## Resume
 
-`--resumable` writes the working integers to `{binary}-{algo}.json` in the current directory and continues from that file on a later run. The file is pretty-printed JSON. Counters are numbers. Big integers are hexadecimal strings with a `0x` prefix, and a leading `-` when negative. Older decimal strings still load. Without the flag, the file is ignored.
-
-The file is rewritten when the completed term count, convergent index, or correct-digit count doubles (1, 2, 4, 8, …), and once more when that request's accumulator is finished, before the digits are printed. A crash or kill does not flush. The next run loads the last fully renamed file and repeats the work done since that write. A leftover `*.json.tmp` is ignored. The file stays after a successful print. It also stores the finished digits. Repeating that count, or any smaller count, prints from those saved digits and does not recompute them. A later run can still ask for more digits. Square-root and cube-root checkpoints keep the guard digits of that value, so a longer request lifts it instead of starting over.
-
-`pi` with `--algo machin` and `e` with `--algo taylor` resume only for the same digit count. A different count is an error and leaves the file unchanged. The other algorithms can continue to a higher count. Two processes must not share one checkpoint file.
+`--resumable` continues from `{binary}-{algo}.json` in the current directory. The same digit count, or a smaller one, reprints the saved digits. A later run can ask for more, except `pi --algo machin` and `e --algo taylor`, which resume only for the same count. Each crate README describes that tool's file.
 
 ## Note
 
